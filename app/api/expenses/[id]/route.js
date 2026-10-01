@@ -2,13 +2,15 @@ import { NextResponse } from 'next/server';
 import { dbGet, dbRun } from '@/lib/db';
 
 export async function DELETE(req, { params }) {
-  const row = await dbGet('SELECT * FROM expenses WHERE id = ?', [params.id]);
-  if (row && row.category === 'ingredient') {
-    return NextResponse.json(
-      { error: 'This expense was auto-generated from an ingredient purchase and cannot be deleted directly.' },
-      { status: 409 }
-    );
+  try {
+    const row = await dbGet('SELECT * FROM expenses WHERE id = ?', [params.id]);
+    if (!row) {
+      return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+    }
+    await dbRun('DELETE FROM expenses WHERE id = ?', [params.id]);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error('Error in DELETE /api/expenses/[id]:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-  await dbRun('DELETE FROM expenses WHERE id = ?', [params.id]);
-  return NextResponse.json({ ok: true });
 }

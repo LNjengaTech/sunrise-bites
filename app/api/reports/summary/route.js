@@ -7,19 +7,74 @@ export async function GET(req) {
     const from = searchParams.get('from') || new Date().toISOString().slice(0, 10);
     const to = searchParams.get('to') || new Date().toISOString().slice(0, 10);
 
-    // ---- Cashflow (actual money in / out) ----
+    // ---- Cashflow: Revenue ----
     const totalRevenueRow = await dbGet(
       `SELECT COALESCE(SUM(quantity * unit_price), 0) as total FROM sales WHERE sale_date BETWEEN ? AND ?`,
       [from, to]
     );
     const totalRevenue = Number(totalRevenueRow?.total) || 0;
 
-    const expensesByCategory = await dbQuery(
-      `SELECT category, COALESCE(SUM(amount), 0) as total FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY category ORDER BY total DESC`,
+    // ---- Cashflow: Purchases (Daily market buys: flour, oil, etc.) ----
+    let totalPurchases = 0;
+    let purchaseRows = [];
+    try {
+      const totalPurchasesRow = await dbGet(
+        `SELECT COALESCE(SUM(total_cost), 0) as total FROM purchases WHERE purchase_date BETWEEN ? AND ?`,
+        [from, to]
+      );
+      totalPurchases = Number(totalPurchasesRow?.total) || 0;
+
+      purchaseRows = (await dbQuery(
+        `SELECT id, purchase_date as date, name as description, 'Purchases' as category,
+                quantity, unit, unit_price, total_cost as amount, notes
+         FROM purchases WHERE purchase_date BETWEEN ? AND ? ORDER BY purchase_date DESC, id DESC`,
+        [from, to]
+      )) || [];
+    } catch (e) {
+      console.warn('Purchases table query fallback:', e.message);
+    }
+
+    // ---- Cashflow: Other Overheads (Rent, Wages, Utilities, etc. — excluding legacy ingredient auto-logs) ----
+    const expensesByCategory = (await dbQuery(
+      `SELECT category, COALESCE(SUM(amount), 0) as total
+       FROM expenses
+       WHERE expense_date BETWEEN ? AND ? AND category != 'ingredient'
+       GROUP BY category ORDER BY total DESC`,
       [from, to]
-    );
-    const totalExpenses = (expensesByCategory || []).reduce((sum, e) => sum + Number(e.total || 0), 0);
+    )) || [];
+    const totalOtherExpenses = expensesByCategory.reduce((sum, e) => sum + Number(e.total || 0), 0);
+
+    const expenseRows = (await dbQuery(
+      `SELECT id, expense_date as date, COALESCE(description, category) as description,
+              category, NULL as quantity, NULL as unit, amount as unit_price, amount, NULL as notes
+       FROM expenses
+       WHERE expense_date BETWEEN ? AND ? AND category != 'ingredient'
+       ORDER BY expense_date DESC, id DESC`,
+      [from, to]
+    )) || [];
+
+    const totalExpenses = totalOtherExpenses + totalPurchases;
     const netCashflow = totalRevenue - totalExpenses;
+
+    // Build Daily Spending Sheet / Expense Ledger rows (sorted by date desc)
+    const ledger = [
+      ...purchaseRows.map((p) => ({
+        ...p,
+        type: 'purchase',
+        amount: Number(p.amount) || 0,
+        unit_price: Number(p.unit_price) || 0,
+        quantity: p.quantity != null ? Number(p.quantity) : null,
+      })),
+      ...expenseRows.map((e) => ({
+        ...e,
+        type: 'expense',
+        amount: Number(e.amount) || 0,
+        unit_price: Number(e.unit_price) || 0,
+      })),
+    ].sort((a, b) => {
+      if (a.date === b.date) return (Number(b.id) || 0) - (Number(a.id) || 0);
+      return a.date < b.date ? 1 : -1;
+    });
 
     // ---- Production Batches in period ----
     const batchesByRecipe = await dbQuery(
@@ -61,8 +116,6 @@ export async function GET(req) {
         const costPerUnit = cost ? Number(cost.costPerUnit || 0) : 0;
         const theoreticalDirectCost = costPerUnit * unitsSold;
 
-        // If batches were logged, cost of production is actualBatchCost.
-        // If no batches were logged (fallback), cost is theoreticalDirectCost.
         const hasBatchData = unitsProduced > 0;
         const effectiveDirectCost = hasBatchData ? actualBatchCost : theoreticalDirectCost;
         const unsoldQty = hasBatchData ? Math.max(0, unitsProduced - unitsSold) : 0;
@@ -101,19 +154,17 @@ export async function GET(req) {
 
     const totalEffectiveDirectCost = dishReport.reduce((sum, d) => sum + d.effectiveDirectCost, 0);
     const totalGrossProfit = totalRevenue - totalEffectiveDirectCost;
-    const otherExpenses = (expensesByCategory || [])
-      .filter((e) => e.category !== 'ingredient')
-      .reduce((s, e) => s + Number(e.total || 0), 0);
-    const ingredientExpenses = Number(expensesByCategory?.find((e) => e.category === 'ingredient')?.total) || 0;
-    const estimatedNetProfit = totalGrossProfit - otherExpenses;
+    const estimatedNetProfit = totalGrossProfit - totalOtherExpenses;
 
     return NextResponse.json({
       range: { from, to },
       cashflow: {
         totalRevenue,
+        totalPurchases,
+        totalOtherExpenses,
         totalExpenses,
         netCashflow,
-        expensesByCategory: expensesByCategory || [],
+        expensesByCategory,
       },
       profitability: {
         dishReport,
@@ -122,10 +173,10 @@ export async function GET(req) {
         totalActualProductionCost,
         totalUnsoldCost,
         totalGrossProfit,
-        ingredientExpenses,
-        otherExpenses,
+        otherExpenses: totalOtherExpenses,
         estimatedNetProfit,
       },
+      ledger,
     });
   } catch (err) {
     console.error('Error in /api/reports/summary:', err);

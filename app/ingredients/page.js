@@ -406,7 +406,7 @@ function PurchaseModal({ ingredient, onClose, onSaved }) {
     <Modal title={`Restock: ${ingredient.name}`} onClose={onClose}>
       <div className="bg-amber-50/70 border border-amber-200/50 rounded-2xl p-3 mb-4 text-xs text-amber-900">
         Current price: <strong className="font-bold">{fmtKES(ingredient.unit_cost)}</strong> per {ingredient.base_unit}.
-        Logging this restock updates all recipe costs and records an expense automatically.
+        Updating this price updates all recipe costs and dish profit calculations automatically.
       </div>
 
       <form onSubmit={submit} className="space-y-4">

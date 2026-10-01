@@ -33,7 +33,7 @@ export default function CounterPage() {
   const [saleDate, setSaleDate]     = useState(new Date().toISOString().slice(0, 10));
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCat] = useState('All');
-  const [showSummaryDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
   const [lastOrder, setLastOrder]   = useState(null);

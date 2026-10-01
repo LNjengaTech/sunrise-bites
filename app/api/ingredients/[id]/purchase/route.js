@@ -27,11 +27,6 @@ export async function POST(req, { params }) {
       [params.id, baseQty, Number(purchase_cost), unitCost]
     );
 
-    await dbRun(
-      `INSERT INTO expenses (category, description, amount, expense_date, ingredient_id) VALUES ('ingredient', ?, ?, ?, ?)`,
-      [`Restocked ${ingredient.name}`, Number(purchase_cost), date, params.id]
-    );
-
     const updated = await dbGet('SELECT * FROM ingredients WHERE id = ?', [params.id]);
     return NextResponse.json(updated);
   } catch (err) {

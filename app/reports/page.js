@@ -1,6 +1,18 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { BarChart3, AlertTriangle, Calendar, TrendingUp, TrendingDown, DollarSign, PieChart, Sparkles } from 'lucide-react';
+import {
+  BarChart3,
+  AlertTriangle,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  PieChart,
+  Sparkles,
+  ShoppingBag,
+  Receipt,
+  FileSpreadsheet,
+} from 'lucide-react';
 import { PageSpinner } from '@/components/Spinner';
 import { fetchOne, getCached, hasCached } from '@/lib/fetchHelpers';
 
@@ -49,6 +61,9 @@ export default function ReportsPage() {
     });
   }, [reportUrl]);
 
+  const safeLedger = Array.isArray(data?.ledger) ? data.ledger : [];
+  const ledgerTotal = safeLedger.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -63,7 +78,7 @@ export default function ReportsPage() {
             </span>
           </div>
           <p className="text-stone-400 text-xs sm:text-sm mt-0.5">
-            Cashflow tracking, actual gross profitability, and unsold food costs.
+            Cashflow tracking, actual gross profitability, and complete daily spending sheet.
           </p>
         </div>
       </div>
@@ -131,7 +146,7 @@ export default function ReportsPage() {
                 Actual Cashflow (Money In vs Money Out)
               </h2>
               <p className="text-xs text-stone-400">
-                Direct transactions during this date range (includes ingredient purchases as cash outflow).
+                Direct cash transactions during this date range (daily market purchases + shop overheads).
               </p>
             </div>
 
@@ -146,13 +161,17 @@ export default function ReportsPage() {
                 label="Total Cash Out"
                 value={fmtKES(data.cashflow?.totalExpenses)}
                 tone="text-rose-500"
-                subtitle="Expenses + Restocks"
+                subtitle={
+                  data.cashflow?.totalPurchases > 0
+                    ? `Purchases: ${fmtKES(data.cashflow.totalPurchases)} · Bills: ${fmtKES(data.cashflow.totalOtherExpenses)}`
+                    : 'Purchases + Overheads'
+                }
               />
               <StatCard
                 label="Net Cash Balance"
                 value={fmtKES(data.cashflow?.netCashflow)}
                 tone={(data.cashflow?.netCashflow || 0) >= 0 ? 'text-emerald-600' : 'text-rose-500'}
-                subtitle="Net money remaining"
+                subtitle="Net cash in till"
               />
             </div>
           </div>
@@ -195,7 +214,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Unsold food cost notification */}
-          {data.profitability.totalUnsoldCost > 0 && (
+          {data.profitability?.totalUnsoldCost > 0 && (
             <div className="rounded-3xl bg-amber-50 border border-amber-200/60 p-4 sm:p-5 flex gap-3.5 items-start">
               <AlertTriangle size={22} className="text-amber-600 shrink-0 mt-0.5" />
               <div>
@@ -210,30 +229,40 @@ export default function ReportsPage() {
           )}
 
           {/* Section 3: Expenses Breakdown with Visual Progress Bars */}
-          {(Array.isArray(data.cashflow?.expensesByCategory) ? data.cashflow.expensesByCategory : []).length > 0 && (
+          {((Array.isArray(data.cashflow?.expensesByCategory) ? data.cashflow.expensesByCategory : []).length > 0 || (Number(data.cashflow?.totalPurchases) || 0) > 0) && (
             <div className="card space-y-4">
               <div className="flex items-center gap-2">
                 <PieChart size={18} className="text-brand-600" />
-                <h3 className="font-extrabold text-stone-900 text-base">Expenses by Category</h3>
+                <h3 className="font-extrabold text-stone-900 text-base">Spending Breakdown</h3>
               </div>
 
               <div className="space-y-3">
                 {(() => {
-                  const items = data.cashflow.expensesByCategory;
-                  const total = items.reduce((acc, cur) => acc + Number(cur.total || 0), 0);
+                  const overheads = Array.isArray(data.cashflow?.expensesByCategory) ? data.cashflow.expensesByCategory : [];
+                  const purchasesTotal = Number(data.cashflow?.totalPurchases) || 0;
+                  const totalSpent = Number(data.cashflow?.totalExpenses) || 1;
+
+                  const items = [
+                    ...(purchasesTotal > 0 ? [{ category: 'Daily Market Purchases', total: purchasesTotal, isPurchase: true }] : []),
+                    ...overheads,
+                  ];
+
                   return items.map((e) => {
-                    const pct = total > 0 ? (Number(e.total) / total) * 100 : 0;
+                    const pct = totalSpent > 0 ? (Number(e.total) / totalSpent) * 100 : 0;
                     return (
                       <div key={e.category} className="space-y-1">
                         <div className="flex justify-between text-xs sm:text-sm">
-                          <span className="capitalize font-bold text-stone-700">{e.category}</span>
+                          <span className="capitalize font-bold text-stone-700 flex items-center gap-1.5">
+                            {e.isPurchase ? <ShoppingBag size={13} className="text-brand-600" /> : <Receipt size={13} className="text-stone-400" />}
+                            {e.category}
+                          </span>
                           <span className="font-black text-stone-900">
                             {fmtKES(e.total)} <span className="text-xs font-normal text-stone-400">({pct.toFixed(0)}%)</span>
                           </span>
                         </div>
                         <div className="w-full h-2 rounded-full bg-stone-100 overflow-hidden">
                           <div
-                            className="h-full bg-brand-500 rounded-full transition-all duration-500"
+                            className={`h-full rounded-full transition-all duration-500 ${e.isPurchase ? 'bg-brand-500' : 'bg-stone-800'}`}
                             style={{ width: `${Math.max(4, pct)}%` }}
                           />
                         </div>
@@ -304,14 +333,100 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          {/* Section 5: Daily Spending Sheet (Handwritten Ledger Style) */}
+          <div className="card space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-stone-100">
+              <div>
+                <h3 className="font-extrabold text-stone-900 text-base flex items-center gap-2">
+                  <FileSpreadsheet size={18} className="text-brand-600" />
+                  Daily Spending Sheet (Ledger)
+                </h3>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  All daily market purchases and overhead expenses recorded for this timeframe.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-stone-700 bg-stone-100 px-3 py-1.5 rounded-full self-start sm:self-auto">
+                {safeLedger.length} item{safeLedger.length !== 1 ? 's' : ''} · Total: <span className="text-rose-600">{fmtKES(ledgerTotal)}</span>
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              {safeLedger.length === 0 ? (
+                <p className="text-stone-400 text-sm py-6 text-center">
+                  No purchases or expenses recorded in this period.
+                </p>
+              ) : (
+                <table className="w-full text-sm min-w-[580px]">
+                  <thead>
+                    <tr className="text-left text-stone-400 text-xs border-b border-stone-100">
+                      <th className="pb-2.5 font-bold uppercase tracking-wider">Date</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider">Item / Description</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider">Category</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider text-right">Qty</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider">Unit</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider text-right">Unit Price</th>
+                      <th className="pb-2.5 font-bold uppercase tracking-wider text-right">Total Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {safeLedger.map((row, i) => (
+                      <tr key={i} className="hover:bg-stone-50/60 transition">
+                        <td className="py-2.5 text-stone-500 text-xs font-semibold whitespace-nowrap">
+                          {row.date}
+                        </td>
+                        <td className="py-2.5 font-extrabold text-stone-900">
+                          {row.description}
+                          {row.notes && <span className="text-xs text-stone-400 font-normal ml-1.5">({row.notes})</span>}
+                        </td>
+                        <td className="py-2.5">
+                          <span
+                            className={`badge text-[11px] font-bold ${
+                              row.category === 'Purchases' || row.type === 'purchase'
+                                ? 'bg-orange-50 text-orange-800 border border-orange-200/60'
+                                : 'bg-stone-100 text-stone-700'
+                            }`}
+                          >
+                            {row.category}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-right font-medium text-stone-700">
+                          {row.quantity != null ? row.quantity : '—'}
+                        </td>
+                        <td className="py-2.5 text-stone-500 font-medium">
+                          {row.unit || '—'}
+                        </td>
+                        <td className="py-2.5 text-right text-stone-500 font-medium">
+                          {row.quantity && row.unit_price > 0 ? fmtKES(row.unit_price) : '—'}
+                        </td>
+                        <td className="py-2.5 text-right font-black text-rose-500">
+                          -{fmtKES(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-stone-200 bg-stone-50/50">
+                      <td colSpan={6} className="py-3 font-extrabold text-stone-900 text-right pr-4">
+                        Total Spending:
+                      </td>
+                      <td className="py-3 text-right font-black text-rose-600 text-base">
+                        -{fmtKES(ledgerTotal)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+
           {/* Guide Legend */}
           <div className="rounded-2xl bg-stone-100/90 border border-stone-200/60 p-4 text-xs text-stone-500 space-y-1">
             <p className="font-bold text-stone-700 mb-1 flex items-center gap-1.5">
               <Sparkles size={14} className="text-brand-600" /> Metric Definitions
             </p>
-            <p><strong className="text-stone-700">Cashflow:</strong> Literal money that went in and out of your drawer during the selected dates.</p>
+            <p><strong className="text-stone-700">Cashflow:</strong> Literal money that entered and left your till during the selected dates (Purchases + Overheads).</p>
             <p><strong className="text-stone-700">Profitability:</strong> Revenue minus direct recipe ingredient costs of units sold minus overhead expenses.</p>
-            <p><strong className="text-stone-700">Cooked / Unsold:</strong> Derived from the Production Log. Helps identify daily food waste.</p>
+            <p><strong className="text-stone-700">Daily Spending Sheet:</strong> Itemized ledger of all market buys and business expenses.</p>
           </div>
         </>
       )}

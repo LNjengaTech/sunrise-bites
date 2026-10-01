@@ -7,10 +7,10 @@ export async function GET(req) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
 
-    let query = 'SELECT * FROM expenses';
+    let query = "SELECT * FROM expenses WHERE category != 'ingredient'";
     const args = [];
     if (from && to) {
-      query += ' WHERE expense_date BETWEEN ? AND ?';
+      query += ' AND expense_date BETWEEN ? AND ?';
       args.push(from, to);
     }
     query += ' ORDER BY expense_date DESC, id DESC LIMIT 300';

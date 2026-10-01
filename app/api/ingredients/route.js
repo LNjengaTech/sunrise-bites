@@ -46,13 +46,6 @@ export async function POST(req) {
       [ingredientId, baseQty, Number(purchase_cost), unitCost]
     );
 
-    // Log the initial purchase as an expense so cashflow stays accurate
-    await dbRun(
-      `INSERT INTO expenses (category, description, amount, expense_date, ingredient_id)
-       VALUES ('ingredient', ?, ?, ?, ?)`,
-      [`Purchased ${name.trim()} (initial stock)`, Number(purchase_cost), today, ingredientId]
-    );
-
     const created = await dbGet('SELECT * FROM ingredients WHERE id = ?', [ingredientId]);
     return NextResponse.json(created, { status: 201 });
   } catch (e) {
